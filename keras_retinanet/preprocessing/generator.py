@@ -196,26 +196,34 @@ class Generator(object):
         max_shape = tuple(max(image.shape[x] for image in image_group) for x in range(3))
 
         # compute labels and regression targets
-        labels_group     = [None] * self.batch_size
-        regression_group = [None] * self.batch_size
+        labels_group     = [[]] * self.batch_size
+        regression_group = [[]] * self.batch_size
         for index, (image, annotations) in enumerate(zip(image_group, annotations_group)):
             # compute regression targets
-            labels_group[index], annotations, anchors = self.anchor_targets(max_shape, annotations, self.num_classes(), mask_shape=image.shape)
-            regression_group[index] = bbox_transform(anchors, annotations)
+            labels_group[index], annotation_targets, anchors = self.anchor_targets(max_shape, annotations, self.num_classes(), mask_shape=image.shape)
 
-            # append anchor states to regression targets (necessary for filtering 'ignore', 'positive' and 'negative' anchors)
-            anchor_states           = np.max(labels_group[index], axis=1, keepdims=True)
-            regression_group[index] = np.append(regression_group[index], anchor_states, axis=1)
+            for a, at, lg in zip(anchors, annotation_targets, labels_group[index]):
+                regression_group[index].append(bbox_transform(a, at))
 
-        labels_batch     = np.zeros((self.batch_size,) + labels_group[0].shape, dtype=keras.backend.floatx())
-        regression_batch = np.zeros((self.batch_size,) + regression_group[0].shape, dtype=keras.backend.floatx())
+                # append anchor states to regression targets (necessary for filtering 'ignore', 'positive' and 'negative' anchors)
+                anchor_states               = np.max(lg, axis=1, keepdims=True)
+                regression_group[index][-1] = np.append(regression_group[index][-1], anchor_states, axis=1)
 
-        # copy all labels and regression values to the batch blob
-        for index, (labels, regression) in enumerate(zip(labels_group, regression_group)):
-            labels_batch[index, ...]     = labels
-            regression_batch[index, ...] = regression
+        labels_batches = []
+        regression_batches = []
+        for i in range(5):
+            labels_batch     = np.zeros((self.batch_size,) + labels_group[0][i].shape, dtype=keras.backend.floatx())
+            regression_batch = np.zeros((self.batch_size,) + regression_group[0][i].shape, dtype=keras.backend.floatx())
 
-        return [regression_batch, labels_batch]
+            # copy all labels and regression values to the batch blob
+            for index, (labels, regression) in enumerate(zip(labels_group, regression_group)):
+                labels_batch[index, ...]     = labels[i]
+                regression_batch[index, ...] = regression[i]
+
+            labels_batches.append(labels_batch)
+            regression_batches.append(regression_batch)
+
+        return regression_batches + labels_batches
 
     def compute_input_output(self, group):
         # load images and annotations

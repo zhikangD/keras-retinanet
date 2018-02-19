@@ -83,8 +83,28 @@ def create_models(num_classes, weights, multi_gpu=0):
     # compile model
     training_model.compile(
         loss={
-            'regression'    : losses.smooth_l1(),
-            'classification': losses.focal()
+            'regression_0'    : losses.smooth_l1(),
+            'regression_1'    : losses.smooth_l1(),
+            'regression_2'    : losses.smooth_l1(),
+            'regression_3'    : losses.smooth_l1(),
+            'regression_4'    : losses.smooth_l1(),
+            'classification_0': losses.focal(),
+            'classification_1': losses.focal(),
+            'classification_2': losses.focal(),
+            'classification_3': losses.focal(),
+            'classification_4': losses.focal(),
+        },
+        loss_weights={
+            'regression_0'    : 1.0 / 5.0,
+            'regression_1'    : 1.0 / 5.0,
+            'regression_2'    : 1.0 / 5.0,
+            'regression_3'    : 1.0 / 5.0,
+            'regression_4'    : 1.0 / 5.0,
+            'classification_0': 1.0 / 5.0,
+            'classification_1': 1.0 / 5.0,
+            'classification_2': 1.0 / 5.0,
+            'classification_3': 1.0 / 5.0,
+            'classification_4': 1.0 / 5.0,
         },
         optimizer=keras.optimizers.adam(lr=1e-5, clipnorm=0.001)
     )

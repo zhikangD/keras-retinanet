@@ -66,10 +66,6 @@ def default_classification_model(
         **options
     )(outputs)
 
-    # reshape output and apply sigmoid
-    outputs = keras.layers.Reshape((-1, num_classes), name='pyramid_classification_reshape')(outputs)
-    outputs = keras.layers.Activation('sigmoid', name='pyramid_classification_sigmoid')(outputs)
-
     return keras.models.Model(inputs=inputs, outputs=outputs, name=name)
 
 
@@ -96,7 +92,6 @@ def default_regression_model(num_anchors, pyramid_feature_size=256, regression_f
         )(outputs)
 
     outputs = keras.layers.Conv2D(num_anchors * 4, name='pyramid_regression', **options)(outputs)
-    outputs = keras.layers.Reshape((-1, 4), name='pyramid_regression_reshape')(outputs)
 
     return keras.models.Model(inputs=inputs, outputs=outputs, name=name)
 
@@ -155,11 +150,26 @@ def default_submodels(num_classes, anchor_parameters):
 
 
 def __build_model_pyramid(name, model, features):
-    return keras.layers.Concatenate(axis=1, name=name)([model(f) for f in features])
+    #return keras.layers.Concatenate(axis=1, name=name)([model(f) for f in features])
+    return [model(f) for f in features]
 
 
 def __build_pyramid(models, features):
-    return [__build_model_pyramid(n, m, features) for n, m in models]
+    result = []
+    for n, m in models:
+        model_pyramid = __build_model_pyramid(n, m, features)
+        for level, outputs in enumerate(model_pyramid):
+            if n == 'classification':
+                # reshape output and apply sigmoid
+                outputs = keras.layers.Reshape((-1, 80), name='classification_reshape_{}'.format(level))(outputs)
+                outputs = keras.layers.Activation('sigmoid', name='classification_{}'.format(level))(outputs)
+            elif n == 'regression':
+                outputs = keras.layers.Reshape((-1, 4), name='regression_{}'.format(level))(outputs)
+            else:
+                raise ValueError('Unknown name of model: {}'.format(n))
+
+            result.append(outputs)
+    return result
 
 
 def __build_anchors(anchor_parameters, features):
@@ -172,7 +182,8 @@ def __build_anchors(anchor_parameters, features):
             scales=anchor_parameters.scales,
             name='anchors_{}'.format(i)
         )(f))
-    return keras.layers.Concatenate(axis=1)(anchors)
+    #return keras.layers.Concatenate(axis=1)(anchors)
+    return anchors
 
 
 def retinanet(
@@ -196,24 +207,29 @@ def retinanet(
     pyramid = __build_pyramid(submodels, features)
     anchors = __build_anchors(anchor_parameters, features)
 
-    return keras.models.Model(inputs=inputs, outputs=[anchors] + pyramid, name=name)
+    return keras.models.Model(inputs=inputs, outputs=anchors + pyramid, name=name)
 
 
 def retinanet_bbox(inputs, num_classes, nms=True, name='retinanet-bbox', *args, **kwargs):
     model = retinanet(inputs=inputs, num_classes=num_classes, *args, **kwargs)
 
     # we expect the anchors, regression and classification values as first output
-    anchors        = model.outputs[0]
-    regression     = model.outputs[1]
-    classification = model.outputs[2]
+    anchors        = model.outputs[0:5]
+    regression     = model.outputs[5:10]
+    classification = model.outputs[10:15]
 
     # apply predicted regression to anchors
-    boxes      = layers.RegressBoxes(name='boxes')([anchors, regression])
-    detections = keras.layers.Concatenate(axis=2)([boxes, classification] + model.outputs[3:])
+    boxes = [None] * 5
+    detections = [None] * 5
+    for i in range(5):
+        boxes[i]      = layers.RegressBoxes(name='boxes_{}'.format(i))([anchors[i], regression[i]])
+        detections[i] = keras.layers.Concatenate(axis=2)([boxes[i], classification[i]] + model.outputs[15:])
 
-    # additionally apply non maximum suppression
-    if nms:
-        detections = layers.NonMaximumSuppression(name='nms')([boxes, classification, detections])
+        # additionally apply non maximum suppression
+        if nms:
+            detections[i] = layers.NonMaximumSuppression(name='nms_{}'.format(i))([boxes[i], classification[i], detections[i]])
+
+    detections = keras.layers.Concatenate(axis=1, name='detections')(detections)
 
     # construct the model
-    return keras.models.Model(inputs=inputs, outputs=model.outputs[1:] + [detections], name=name)
+    return keras.models.Model(inputs=inputs, outputs=model.outputs[5:] + [detections], name=name)
