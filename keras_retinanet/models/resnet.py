@@ -17,6 +17,7 @@ limitations under the License.
 import warnings
 
 import keras
+from keras.utils import get_file
 import keras_resnet
 import keras_resnet.models
 from ..models import retinanet
@@ -44,7 +45,7 @@ def download_imagenet(backbone):
     elif backbone == 152:
         checksum = '6ee11ef2b135592f8031058820bb9e71'
 
-    return keras.applications.imagenet_utils.get_file(
+    return get_file(
         filename,
         resource,
         cache_subdir='models',
